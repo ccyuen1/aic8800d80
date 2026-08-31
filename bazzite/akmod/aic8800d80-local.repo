@@ -1,0 +1,8 @@
+[aic8800d80-local]
+name=AIC8800D80 local akmod repository
+baseurl=file:///var/opt/rpm-repo/aic8800d80/fedora/$releasever/$basearch
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+metadata_expire=0
+skip_if_unavailable=0
