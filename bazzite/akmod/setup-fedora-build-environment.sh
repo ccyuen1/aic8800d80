@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Run inside the Fedora Distrobox that matches the Bazzite host. Do not run
-# this on the Bazzite host.
+# Run inside the selected Fedora Distrobox, not on the Bazzite host.
 set -euo pipefail
 
 expected_fedora=${1:?missing expected Fedora release}

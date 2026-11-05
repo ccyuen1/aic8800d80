@@ -29,13 +29,14 @@ fi
 
 repo_dir=$(cd -- "$script_dir/../.." && pwd)
 host_fedora=$(rpm -E '%{fedora}')
+target_fedora=${AIC8800_FEDORA_VERSION:-$host_fedora}
 host_arch=$(rpm -E '%{_arch}')
-container_name=${AIC8800_DISTROBOX_NAME:-aic8800-rpmbuild-f${host_fedora}}
+container_name=${AIC8800_DISTROBOX_NAME:-aic8800-rpmbuild-f${target_fedora}}
 rpm_dir=${AIC8800_RPM_DIR:-"$HOME/rpmbuild/RPMS/$host_arch"}
 repo_root=/var/opt/rpm-repo/aic8800d80
-repo_path="$repo_root/fedora/$host_fedora/$host_arch"
+repo_path="$repo_root/fedora/$target_fedora/$host_arch"
 repo_parent=$(dirname "$repo_path")
-release_root="$repo_root/releases/fedora-${host_fedora}-${host_arch}"
+release_root="$repo_root/releases/fedora-${target_fedora}-${host_arch}"
 staging_parent=${AIC8800_REPO_STAGING_DIR:-"$HOME/.cache/aic8800d80-rpm-repo"}
 
 if [[ "$staging_parent" != "$HOME"/* ]]; then
@@ -44,9 +45,9 @@ if [[ "$staging_parent" != "$HOME"/* ]]; then
     exit 2
 fi
 
-if [[ ! "$host_fedora" =~ ^[0-9]+$ ]]; then
-    printf 'Could not determine the Bazzite host Fedora release: %q.\n' \
-        "$host_fedora" >&2
+if [[ ! "$target_fedora" =~ ^[0-9]+$ ]]; then
+    printf 'Could not determine a valid target Fedora release: %q.\n' \
+        "$target_fedora" >&2
     exit 2
 fi
 
@@ -84,7 +85,7 @@ git -C "$repo_dir" diff --exit-code -- drivers/aic8800 fw dkms.conf
 
 mkdir -p -m 0700 "$staging_parent"
 chmod 0700 "$staging_parent"
-staging_dir=$(mktemp -d "$staging_parent/f${host_fedora}-${host_arch}.XXXXXX")
+staging_dir=$(mktemp -d "$staging_parent/f${target_fedora}-${host_arch}.XXXXXX")
 cleanup() {
     if ! rm -rf -- "$staging_dir" 2>/dev/null; then
         sudo rm -rf -- "$staging_dir"
@@ -95,7 +96,7 @@ trap cleanup EXIT
 
 distrobox enter --name "$container_name" -- \
     bash "$script_dir/publish-in-fedora-distrobox.sh" \
-    "$host_fedora" "$rpm_dir" "$staging_dir"
+    "$target_fedora" "$rpm_dir" "$staging_dir"
 
 akmod_rpm=$(find "$staging_dir" -maxdepth 1 -type f -name 'akmod-aic8800d80-*.rpm' -print -quit)
 if [[ -z "$akmod_rpm" ]]; then
@@ -107,7 +108,7 @@ publication_evr=$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "$akmod_rpm")
 publication_id="$(date -u +%Y%m%dT%H%M%SZ)-${publication_evr}"
 release_dir="$release_root/$publication_id"
 temporary_link="$repo_parent/.${host_arch}.new.$$"
-link_target="../../releases/fedora-${host_fedora}-${host_arch}/${publication_id}"
+link_target="../../releases/fedora-${target_fedora}-${host_arch}/${publication_id}"
 
 sudo install -d -m 0755 "$release_dir" "$repo_parent"
 sudo cp -a --no-preserve=ownership "$staging_dir/." "$release_dir/"

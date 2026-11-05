@@ -54,7 +54,9 @@ It publishes only the two kernel-independent packages:
 kernel-specific `kmod-aic8800d80-<kernel-release>` RPMs. Akmods must build the
 exact-kernel package for the deployment's target kernel.
 
-The Fedora Distrobox release is derived from the Bazzite host. Its build and
+The Fedora Distrobox release normally follows the Bazzite host. Set
+`AIC8800_FEDORA_VERSION` when preparing RPMs for a different target release,
+for example before a Fedora major-version upgrade. Its build and
 repository-generation tools are not layered onto Bazzite. Persistent RPM
 artifacts for publication remain in `$HOME/rpmbuild`, not in the
 disposable maintainer cache.
@@ -99,7 +101,7 @@ repository configuration remains in place:
 
 ```bash
 make distrobox-rpm
-sudo make local-repo-publish
+make local-repo-publish
 sudo make local-repo-verify
 ```
 
@@ -120,6 +122,46 @@ sudo make installed-modules-verify
 Do not install the legacy kernel-specific `aic8800d80` package alongside
 `akmod-aic8800d80`.
 
+### 3. Fedora major-version upgrade
+
+Prepare the RPM repository for the target Fedora release **before** starting
+the Bazzite major-version upgrade. The normal workflow detects the release
+from the running host, which is still the old release at this point. Set
+`AIC8800_FEDORA_VERSION` to select the target release for Distrobox setup,
+RPM building, repository publication, and verification.
+
+For example, to prepare Fedora 45 while the host is still on Fedora 44:
+
+```bash
+AIC8800_FEDORA_VERSION=45 make distrobox-setup
+AIC8800_FEDORA_VERSION=45 make distrobox-rpm
+AIC8800_FEDORA_VERSION=45 make local-repo-publish
+sudo make AIC8800_FEDORA_VERSION=45 local-repo-verify
+```
+
+During Fedora Distrobox setup, `grub2-common` may print a
+`grub2-probe: error: failed to get canonical path of 'overlay'` message from
+its post-transaction scriptlet. This is caused by the container's overlay
+filesystem, which `grub2-probe` cannot map to a block device. It is non-fatal
+when package installation completes successfully (`Complete!`); it does not
+indicate a problem with the AIC8800D80 build or require GRUB repair.
+
+The example creates/uses a Fedora 45 Distrobox and publishes the packages under:
+
+```text
+/var/opt/rpm-repo/aic8800d80/fedora/45/<architecture>/
+```
+
+The Fedora host is not upgraded or modified by these build steps. The
+existing repository configuration uses `$releasever`, so the Fedora
+repository is selected by the upgrade transaction after the host upgrades to
+newer Fedora version. Keep the existing Fedora repository.
+Once the target repository has been verified, perform the
+normal Bazzite major-version upgrade and reboot.
+
+For ordinary updates within the current Fedora release, omit
+`AIC8800_FEDORA_VERSION` and continue using the normal workflow.
+
 ### Update and rollback test
 
 Before a Bazzite update, preserve a known-good deployment and verify the local
@@ -133,9 +175,6 @@ rpm-ostree status
 The user then runs `sudo ujust update`, reboots into the new deployment, runs
 `sudo make installed-modules-verify`, verifies Wi-Fi and Bluetooth, and, if
 practical, boot-tests the known-good prior deployment as rollback validation.
-
-> **TODO — run when Bazzite offers a new kernel:** The normal update and
-> rollback test remain pending until a newer kernel is available.
 
 ### Trust policy
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the akmod RPMs inside the prepared Fedora Distrobox that matches the
-# Bazzite host, using the conventional rpmdevtools/rpmbuild tree. Do not run
+# Build the akmod RPMs inside the prepared Fedora Distrobox for the selected
+# target release, using the conventional rpmdevtools/rpmbuild tree. Do not run
 # this on the Bazzite host.
 set -euo pipefail
 

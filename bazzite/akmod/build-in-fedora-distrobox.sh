@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Run the prepared Fedora Distrobox build that matches the Bazzite host. This
+# Run the prepared Fedora Distrobox build for the selected target release. This
 # intentionally keeps rpmbuild and its dependencies out of the immutable host.
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 host_fedora=$(rpm -E '%{fedora}')
-container_name=${AIC8800_DISTROBOX_NAME:-aic8800-rpmbuild-f${host_fedora}}
+target_fedora=${AIC8800_FEDORA_VERSION:-$host_fedora}
+container_name=${AIC8800_DISTROBOX_NAME:-aic8800-rpmbuild-f${target_fedora}}
 
-if [[ ! "$host_fedora" =~ ^[0-9]+$ ]]; then
-    printf 'Could not determine the Bazzite host Fedora release: %q.\n' \
-        "$host_fedora" >&2
+if [[ ! "$target_fedora" =~ ^[0-9]+$ ]]; then
+    printf 'Could not determine a valid target Fedora release: %q.\n' \
+        "$target_fedora" >&2
     exit 2
 fi
 
@@ -34,4 +35,4 @@ if ! distrobox list --no-color | awk -F '|' -v expected="$container_name" '
 fi
 
 distrobox enter --name "$container_name" -- \
-    bash "$script_dir/rpmbuild-in-fedora-distrobox.sh" "$host_fedora"
+    bash "$script_dir/rpmbuild-in-fedora-distrobox.sh" "$target_fedora"

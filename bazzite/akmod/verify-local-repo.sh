@@ -5,9 +5,16 @@ set -euo pipefail
 
 repo_id=aic8800d80-local
 host_fedora=$(rpm -E '%{fedora}')
+target_fedora=${AIC8800_FEDORA_VERSION:-$host_fedora}
 host_arch=$(rpm -E '%{_arch}')
-repo_path="/var/opt/rpm-repo/aic8800d80/fedora/$host_fedora/$host_arch"
+repo_path="/var/opt/rpm-repo/aic8800d80/fedora/$target_fedora/$host_arch"
 expected_packages=(akmod-aic8800d80 aic8800d80-kmod-common)
+
+if [[ ! "$target_fedora" =~ ^[0-9]+$ ]]; then
+    printf 'Could not determine a valid target Fedora release: %q.\n' \
+        "$target_fedora" >&2
+    exit 2
+fi
 
 if ((EUID != 0)); then
     echo 'Run this with sudo: sudo make local-repo-verify' >&2
@@ -43,8 +50,9 @@ if find -L "$repo_path" -maxdepth 1 -type f -name 'kmod-aic8800d80-*.rpm' -print
     exit 4
 fi
 
-dnf5 --refresh repoquery --repo "$repo_id" --latest-limit=1 \
+dnf5 --releasever="$target_fedora" --refresh repoquery \
+    --repo "$repo_id" --latest-limit=1 \
     akmod-aic8800d80 aic8800d80-kmod-common
 
 printf 'Verified local AIC8800D80 repository for Fedora %s, %s.\n' \
-    "$host_fedora" "$host_arch"
+    "$target_fedora" "$host_arch"

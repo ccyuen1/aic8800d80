@@ -19,8 +19,8 @@ srpm: source-archive
 rpm:
 	./build-rpms.sh $(DEBUG_RPM_TOPDIR)/RPMS/$(shell rpm -E '%{_arch}')
 
-# Preferred Bazzite workflow: build in a Fedora Distrobox matching the host
-# release instead of layering rpmbuild tooling onto the immutable host.
+# Preferred Bazzite workflow: use a Fedora Distrobox matching the host by
+# default; set AIC8800_FEDORA_VERSION to prepare another release.
 distrobox-setup:
 	./setup-fedora-distrobox.sh
 
