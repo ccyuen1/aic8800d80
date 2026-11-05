@@ -9,7 +9,7 @@
 # FIX: Corrected DKMS module configuration for aic8800_fdrv
 #############################################################################
 
-set -e  # Exit on error
+set -eE  # Exit on error and run the ERR trap inside functions
 
 # Color definitions
 readonly RED='\033[0;31m'
@@ -24,7 +24,7 @@ readonly DRV_NAME="aic8800"
 readonly DRV_VERSION="1.0.0"
 readonly SRC_DIR="/usr/src/${DRV_NAME}-${DRV_VERSION}"
 readonly MODULE_NAME="aic8800_fdrv"
-readonly LOG_FILE="/tmp/aic8800d80_install.log"
+readonly LOG_FILE="/var/log/aic8800-install.log"
 
 # Script directory (where the script is located)
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,12 +36,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log_message() {
     local level="$1"
     shift
-    # Garantir que o arquivo de log existe e tem permissões corretas
-    if [ ! -f "$LOG_FILE" ]; then
-        touch "$LOG_FILE" 2>/dev/null || true
-        chmod 666 "$LOG_FILE" 2>/dev/null || true
-    fi
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*" >> "$LOG_FILE" 2>/dev/null || true
+    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*" >> "$LOG_FILE"; } 2>/dev/null || true
 }
 
 print_info() {
@@ -152,7 +147,8 @@ check_secure_boot() {
         echo "  2. Sign the module manually (advanced)"
         echo "  3. Continue installation anyway (module may fail to load)"
         echo ""
-        read -p "Continue installation? (y/N): " choice
+        local choice
+        read -r -p "Continue installation? (y/N): " choice || choice="n"
         if [[ ! "$choice" =~ ^[Yy]$ ]]; then
             print_info "Installation cancelled by user."
             exit 0
@@ -268,15 +264,15 @@ install_dependencies() {
             ;;
             
         pacman)
-            print_info "Syncing package database..."
-            run_logged "Package database sync" pacman -Sy --noconfirm
-
             local -a packages=(dkms base-devel mokutil util-linux usb_modeswitch)
             if [ "$install_kernel_headers" = true ]; then
                 packages+=(linux-headers)
             fi
             print_info "Installing: ${packages[*]}..."
-            run_logged "Dependency installation" pacman -S --needed --noconfirm "${packages[@]}"
+            if ! run_logged "Dependency installation" pacman -S --needed --noconfirm "${packages[@]}"; then
+                print_error "Check the pacman errors above. If the package database is stale, run 'sudo pacman -Syu', reboot if the kernel was updated, then rerun this installer."
+                return 1
+            fi
             ;;
             
         zypper)
@@ -390,6 +386,22 @@ install_firmware() {
         exit 1
     fi
 
+    # Validate the source before changing any installed firmware or config.
+    local -a fw_dirs=()
+    local fw_dir
+    for fw_dir in "$fw_base"/aic8800*; do
+        [ -d "$fw_dir" ] || continue
+        if [ -z "$(find "$fw_dir" -type f -name '*.bin' -print -quit)" ]; then
+            print_error "No firmware binaries found in $fw_dir; existing firmware has not been changed."
+            exit 1
+        fi
+        fw_dirs+=("$fw_dir")
+    done
+    if [ "${#fw_dirs[@]}" -eq 0 ]; then
+        print_error "No firmware directories found in $fw_base; existing firmware has not been changed."
+        exit 1
+    fi
+
     cleanup_legacy_bluetooth_config
 
     # Remove old firmware versions
@@ -400,7 +412,7 @@ install_firmware() {
 
     # Copy all firmware variants
     print_info "Installing firmware for all chip variants..."
-    for fw_dir in "$fw_base"/aic8800*; do
+    for fw_dir in "${fw_dirs[@]}"; do
         if [ -d "$fw_dir" ]; then
             local fw_name=$(basename "$fw_dir")
             local fw_dest="/lib/firmware/$fw_name"
@@ -485,6 +497,30 @@ AUTOINSTALL="yes"
 EOF
     
     print_success "DKMS configuration created."
+}
+
+#############################################################################
+# Pre-flight Build
+#############################################################################
+
+preflight_build() {
+    local build_root kver
+    kver="$(uname -r)"
+    print_step "Test-building the driver for $kver before replacing the existing installation..."
+
+    build_root=$(mktemp -d "${TMPDIR:-/tmp}/aic8800-preflight.XXXXXX")
+    # Use a private copy and clean it so a previous build cannot hide an error.
+    if cp -r "${SCRIPT_DIR}/drivers" "$build_root/" >> "$LOG_FILE" 2>&1 &&
+            make -C "$build_root/drivers/aic8800" KVER="$kver" KDIR="/lib/modules/$kver/build" clean >> "$LOG_FILE" 2>&1 &&
+            make -C "$build_root/drivers/aic8800" KVER="$kver" KDIR="/lib/modules/$kver/build" >> "$LOG_FILE" 2>&1; then
+        rm -rf "$build_root"
+        print_success "Test build succeeded."
+    else
+        rm -rf "$build_root"
+        print_error "Test build failed for kernel $kver. Existing firmware and DKMS installation were not changed."
+        echo "See $LOG_FILE for the compiler output."
+        return 1
+    fi
 }
 
 #############################################################################
@@ -713,7 +749,7 @@ verify_installation() {
     local fw_count=0
     for fw_dir in /lib/firmware/aic8800*; do
         if [ -d "$fw_dir" ]; then
-            ((fw_count++))
+            fw_count=$((fw_count + 1))
         fi
     done
     if [ $fw_count -gt 0 ]; then
@@ -806,11 +842,14 @@ show_final_instructions() {
 #############################################################################
 
 main() {
-    # Initialize log file
-    rm -f "$LOG_FILE" 2>/dev/null || true
-    touch "$LOG_FILE" 2>/dev/null || true
-    chmod 666 "$LOG_FILE" 2>/dev/null || true
-    
+    # Step 1: Check root privileges (before touching the log, which lives in
+    # /var/log and is written by root only)
+    check_root
+
+    # Initialize log file: owned by root, readable by all, never world-writable
+    rm -f "$LOG_FILE"
+    install -m 0644 /dev/null "$LOG_FILE"
+
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════════════════════╗"
     echo "║     AIC8800D80 WiFi 6 Driver - Universal Installer (DKMS)      ║"
@@ -821,9 +860,6 @@ main() {
     log_message "START" "Installation started"
     log_message "INFO" "Kernel: $(uname -r)"
     log_message "INFO" "Distribution: $(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '"')"
-    
-    # Step 1: Check root privileges
-    check_root
     
     # Step 2: Check Secure Boot
     check_secure_boot
@@ -837,7 +873,8 @@ main() {
     # Step 5: Check kernel build tree
     check_kernel_build_tree
 
-    # Step 6: Install firmware
+    # Step 6: Test-build before changing installed firmware or DKMS modules
+    preflight_build
     install_firmware
     
     # Step 7: Create DKMS configuration

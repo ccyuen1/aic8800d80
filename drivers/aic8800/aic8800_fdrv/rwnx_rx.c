@@ -2410,7 +2410,7 @@ check_len_update:
         hdr = (struct ieee80211_hdr *)(skb->data + msdu_offset);
         rwnx_vif = rwnx_rx_get_vif(rwnx_hw, hw_rxhdr->flags_vif_idx);
         if (rwnx_vif) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+#if AICWF_CFG80211_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
             cfg80211_rx_spurious_frame(rwnx_vif->ndev, hdr->addr2, -1, GFP_ATOMIC);
 #else
             cfg80211_rx_spurious_frame(rwnx_vif->ndev, hdr->addr2, GFP_ATOMIC);
@@ -2427,8 +2427,17 @@ check_len_update:
 
 #ifndef CONFIG_SUPPORT_4ADDR
 		if (hw_rxhdr->flags_is_4addr) {
-					dev_err(rwnx_hw->dev, "4addr Frame received (%d), skb->len:%u\n", hw_rxhdr->flags_vif_idx, skb->len);
-					print_hex_dump(KERN_ERR,"4addr ",DUMP_PREFIX_NONE, 16, 1, skb->data, skb->len, false);
+					rwnx_hw->fouraddr_dropped++;
+					if (!rwnx_hw->fouraddr_said || time_after(jiffies, rwnx_hw->fouraddr_said + 60 * HZ)) {
+						AICWFDBG(LOGINFO, "4addr frames dropped (this build has no CONFIG_SUPPORT_4ADDR): %u since the last count; "
+							 "aicwf_dbg_level with 0x8 (debug) logs each one\n", rwnx_hw->fouraddr_dropped);
+						rwnx_hw->fouraddr_dropped = 0;
+						rwnx_hw->fouraddr_said = jiffies ? jiffies : 1;
+					}
+					if (aicwf_dbg_level & LOGDEBUG) {
+						AICWFDBG(LOGDEBUG, "4addr Frame received (%d), skb->len:%u\n", hw_rxhdr->flags_vif_idx, skb->len);
+						print_hex_dump(KERN_DEBUG, "4addr ", DUMP_PREFIX_NONE, 16, 1, skb->data, skb->len, false);
+					}
 					dev_kfree_skb(skb);
 					goto end;
 		}
@@ -2757,7 +2766,7 @@ check_len_update:
 
                 if (hw_rxhdr->flags_is_4addr && !rwnx_vif->use_4addr) {
 					printk("aicwf: 4addr flag error\n");
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+#if AICWF_CFG80211_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
                     cfg80211_rx_unexpected_4addr_frame(rwnx_vif->ndev,
                                                        sta->mac_addr, -1, GFP_ATOMIC);
 #else
